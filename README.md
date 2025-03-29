@@ -18,10 +18,14 @@ An AI-powered Chrome extension that analyzes YouTube content, suggests improveme
    ```
    pip install -r requirements.txt
    ```
-3. Create a `.env` file from the `.env.example` template and add your Gemini API key:
+3. Create a `.env` file from the `.env.example` template and add your API keys:
    ```
-   GEMINI_API_KEY=your-api-key-here
+   GEMINI_API_KEY=your-gemini-api-key-here
+   YOUTUBE_API_KEY=your-youtube-api-key-here
    ```
+   - Get your Gemini API key from [Google AI Studio](https://ai.google.dev/)
+   - Get your YouTube API key from [Google Cloud Console](https://console.cloud.google.com/apis/credentials) after enabling the YouTube Data API v3
+
 4. Run the Flask backend:
    ```
    python app.py
@@ -58,8 +62,9 @@ This extension demonstrates agentic AI capabilities by:
 - **Frontend**: HTML, CSS, JavaScript (Chrome Extension)
 - **Backend**: Python, Flask
 - **AI**: Google's Gemini API
+- **Data**: YouTube Data API v3
 
 ## Notes
 
-- This is a demonstration project showing agentic AI principles
-- The backend uses mock data for demo purposes; in a production implementation, you would integrate with actual YouTube API services 
+- This project uses the real YouTube Data API to fetch video data, statistics, and content
+- Some features like audience retention require YouTube Analytics API access, which is only available to channel owners 
