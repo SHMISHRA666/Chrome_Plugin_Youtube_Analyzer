@@ -326,30 +326,142 @@ class ContentGeneratorTool(Tool):
         """Generate content ideas based on prompt and trending data"""
         logger.info(f"Generating content based on prompt: {prompt}")
         
-        # In a real implementation, we would use a more sophisticated AI system
-        # For this demo, we'll generate mock content
-        
+        try:
+            # Use Gemini to generate unique content ideas for this specific topic
+            model = genai.GenerativeModel('gemini-2.0-flash')
+            
+            generation_prompt = f"""
+            Generate unique YouTube video content ideas for the topic: "{prompt}".
+            
+            Your response should be structured as a valid JSON object with the following format:
+            {{
+                "video_ideas": [
+                    {{
+                        "title": "Engaging title for the video",
+                        "hook": "Attention-grabbing hook to start the video",
+                        "outline": ["Section 1 (0:00-2:00)", "Section 2 (2:00-5:00)", "Section 3 (5:00-8:00)", "..."]
+                    }},
+                    // Include 2-3 unique video ideas
+                ],
+                "thumbnail_ideas": [
+                    "Description of thumbnail idea 1",
+                    "Description of thumbnail idea 2",
+                    "Description of thumbnail idea 3"
+                ],
+                "script_template": "Detailed script template specific to this topic, including intro, main points, and conclusion"
+            }}
+            
+            Ensure your ideas are:
+            1. Specific to the "{prompt}" topic
+            2. On-trend and likely to engage viewers
+            3. Structured for maximum retention
+            4. Different from each other to provide variety
+            
+            The script template should be detailed and include placeholders for key information.
+            """
+            
+            # Generate response
+            response = model.generate_content(generation_prompt)
+            response_text = response.text
+            
+            # Extract JSON content
+            json_match = re.search(r'```json\s*(.*?)\s*```', response_text, re.DOTALL)
+            if json_match:
+                content_json = json_match.group(1)
+            else:
+                # If not in code block, try to extract JSON directly
+                json_pattern = r'({[\s\S]*})'
+                json_match = re.search(json_pattern, response_text)
+                if json_match:
+                    content_json = json_match.group(1)
+                else:
+                    content_json = response_text
+            
+            # Clean the JSON string
+            content_json = content_json.replace('\n', ' ').replace('```', '')
+            
+            try:
+                # Parse the JSON response
+                content_data = json.loads(content_json)
+                
+                # Ensure all required fields are present
+                if "video_ideas" not in content_data or "thumbnail_ideas" not in content_data or "script_template" not in content_data:
+                    logger.warning("Missing required fields in content generation response")
+                    # Supplement with partial data if needed
+                    if "video_ideas" not in content_data:
+                        content_data["video_ideas"] = [{
+                            "title": f"Complete Guide to {prompt}",
+                            "hook": f"Discover the secrets of {prompt} that experts don't want you to know",
+                            "outline": [
+                                "Introduction (0:00-1:30)",
+                                f"{prompt} Fundamentals (1:30-4:00)",
+                                "Advanced Techniques (4:00-10:00)",
+                                "Implementation Steps (10:00-15:00)",
+                                "Conclusion (15:00-16:00)"
+                            ]
+                        }]
+                    
+                    if "thumbnail_ideas" not in content_data:
+                        content_data["thumbnail_ideas"] = [
+                            f"Bold text showcasing '{prompt}' with contrasting background",
+                            f"Before/after results from using {prompt} techniques",
+                            f"Question headline: 'Is {prompt} right for you?' with arrow pointing to benefit"
+                        ]
+                    
+                    if "script_template" not in content_data:
+                        content_data["script_template"] = f"""
+                        INTRO:
+                        - Hook viewers with an interesting fact about {prompt}
+                        - Introduce yourself and your experience with {prompt}
+                        - Overview of what viewers will learn
+                        
+                        MAIN CONTENT:
+                        - Section 1: Explain the basics of {prompt}
+                        - Section 2: Common challenges with {prompt}
+                        - Section 3: Step-by-step technique or solution
+                        - Section 4: Real-world examples or case studies
+                        
+                        CONCLUSION:
+                        - Recap key points
+                        - Call to action
+                        - Tease upcoming related content
+                        """
+                
+                return content_data
+                
+            except json.JSONDecodeError as e:
+                logger.error(f"Error parsing content generation JSON: {e}")
+                # Fall back to simplified format with topic-specific content
+                return self._create_fallback_content(prompt)
+                
+        except Exception as e:
+            logger.error(f"Error in content generation: {e}")
+            # Fall back to simplified format with topic-specific content
+            return self._create_fallback_content(prompt)
+    
+    def _create_fallback_content(self, topic: str) -> Dict[str, Any]:
+        """Create fallback content specific to the topic if AI generation fails"""
         return {
             "video_ideas": [
                 {
-                    "title": "7 Incredible Ways to Master Your Craft in 2023",
-                    "hook": "Did you know 80% of experts use this one technique?",
+                    "title": f"7 Essential {topic.capitalize()} Techniques for 2023",
+                    "hook": f"Did you know 80% of experts use these {topic} strategies?",
                     "outline": [
                         "Introduction (0:00-1:30)",
-                        "Common mistakes to avoid (1:30-4:00)",
-                        "The 7 techniques, explained (4:00-12:00)",
+                        f"Common {topic} mistakes (1:30-4:00)",
+                        f"The 7 key {topic} techniques (4:00-12:00)",
                         "Implementation steps (12:00-15:00)",
                         "Results you can expect (15:00-17:00)",
                         "Call to action (17:00-18:00)"
                     ]
                 },
                 {
-                    "title": "The Ultimate Beginner's Guide That Experts Don't Want You To See",
-                    "hook": "This simple approach changed everything for me...",
+                    "title": f"The Ultimate Beginner's Guide to {topic.capitalize()}",
+                    "hook": f"This simple {topic} approach changed everything for me...",
                     "outline": [
-                        "My story and struggle (0:00-2:30)",
+                        "My story and struggle with " + topic + " (0:00-2:30)",
                         "The breakthrough moment (2:30-4:00)",
-                        "Step-by-step methodology (4:00-10:00)",
+                        f"Step-by-step {topic} methodology (4:00-10:00)",
                         "Avoiding common pitfalls (10:00-13:00)",
                         "Advanced tips for faster results (13:00-16:00)",
                         "Next steps and resources (16:00-18:00)"
@@ -357,11 +469,23 @@ class ContentGeneratorTool(Tool):
                 }
             ],
             "thumbnail_ideas": [
-                "Bold text overlay with shocked face reaction and contrasting colors",
-                "Before/after split screen with progress metrics clearly visible",
-                "Question headline with arrow pointing to visual result"
+                f"Bold text overlay with '{topic}' and shocked face reaction",
+                f"Before/after split screen showing {topic} results",
+                f"Question headline: 'Is your {topic} approach wrong?' with arrow pointing to solution"
             ],
-            "script_template": "INTRO:\nHook viewers with a surprising stat or question\nTeaser of what they'll learn\n\nMAIN CONTENT:\nPoint 1: Problem statement\nPoint 2: Solution overview\nPoint 3-5: Detailed steps\n\nCONCLUSION:\nSummary of benefits\nCall to action\nTeaser for next video"
+            "script_template": f"""INTRO:
+Hook viewers with a surprising stat about {topic}
+Teaser of what they'll learn about {topic}
+
+MAIN CONTENT:
+Point 1: Current state of {topic}
+Point 2: Common problems with {topic} approaches
+Point 3-5: Detailed steps for mastering {topic}
+
+CONCLUSION:
+Summary of {topic} benefits
+Call to action
+Teaser for next video on advanced {topic} techniques"""
         }
 
 class PerformanceTrackerTool(Tool):
@@ -836,12 +960,33 @@ def generate_content():
         
         # Generate insights with Gemini
         system_prompt = f"""
-        You're generating YouTube video content ideas for: '{prompt}'.
-        Based on the content ideas provided, suggest a comprehensive content plan including:
-        1. Which video idea is most promising and why
-        2. Key points to emphasize in the script
-        3. Ways to optimize the thumbnail for higher CTR
-        Keep your recommendations practical and specific.
+        You're an expert YouTube content strategist creating a detailed content plan for a video about: '{prompt}'.
+        
+        Review the video ideas, thumbnail concepts, and script template I'm providing you. Then, create a comprehensive,
+        highly specific response with these sections:
+        
+        1. CONTENT STRATEGY
+        - Analyze which video idea has the highest potential and explain exactly why
+        - Suggest 2-3 specific ways to make the title and hook even more compelling
+        - Identify the most important points to emphasize based on current trends
+        
+        2. SCRIPT ENHANCEMENT
+        - Provide specific talking points for the introduction that will hook viewers
+        - Suggest 2-3 storytelling techniques that would work well for this topic
+        - Recommend visual elements or demonstrations to include at specific timestamps
+        
+        3. THUMBNAIL OPTIMIZATION
+        - Select the best thumbnail idea and explain why it will generate the highest CTR
+        - Suggest specific colors, fonts, and composition for maximum impact
+        - Recommend a specific emotion to convey in the thumbnail and how to achieve it
+        
+        4. DISTRIBUTION STRATEGY
+        - Recommend specific hashtags for this topic
+        - Suggest the best posting time and promotional approach
+        - Identify 2-3 related content pieces to create as follow-ups
+        
+        Your advice should be extremely specific to '{prompt}' and actionable. Include exact phrases, examples, 
+        and techniques that would work well for this particular topic.
         """
         
         user_prompt = json.dumps(content_ideas, indent=2)

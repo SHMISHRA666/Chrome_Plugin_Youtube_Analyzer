@@ -1,4 +1,49 @@
 document.addEventListener('DOMContentLoaded', function() {
+  // Add a simple markdown parser fallback in case marked.js is not available
+  if (typeof marked === 'undefined') {
+    console.warn('Marked library not loaded. Using fallback parser.');
+    
+    // Simple markdown parser fallback
+    window.marked = {
+      parse: function(markdown) {
+        if (!markdown) return '';
+        
+        // Basic conversion of markdown to HTML
+        return markdown
+          // Convert headers
+          .replace(/^# (.*?)$/gm, '<h1>$1</h1>')
+          .replace(/^## (.*?)$/gm, '<h2>$1</h2>')
+          .replace(/^### (.*?)$/gm, '<h3>$1</h3>')
+          .replace(/^#### (.*?)$/gm, '<h4>$1</h4>')
+          
+          // Convert bold and italic
+          .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+          .replace(/__(.*?)__/g, '<strong>$1</strong>')
+          .replace(/\*(.*?)\*/g, '<em>$1</em>')
+          .replace(/_(.*?)_/g, '<em>$1</em>')
+          
+          // Convert bullet lists
+          .replace(/^\* (.*?)$/gm, '<li>$1</li>')
+          .replace(/^- (.*?)$/gm, '<li>$1</li>')
+          
+          // Fix lists by adding <ul> tags
+          .replace(/(<li>.*?<\/li>)(?!\s*<li>)/gs, '<ul>$1</ul>')
+          
+          // Convert paragraphs (any line not starting with HTML tag)
+          .replace(/^(?!<\w+>)(.*?)$/gm, function(match) {
+            if (match.trim() === '') return match;
+            return '<p>' + match + '</p>';
+          })
+          
+          // Fix line breaks
+          .replace(/\n\n/g, '<br>')
+          
+          // Final cleanup for any duplicate tags
+          .replace(/<\/p><p>/g, '</p>\n<p>');
+      }
+    };
+  }
+  
   // Tab switching functionality
   const tabButtons = document.querySelectorAll('.tab-button');
   const tabContents = document.querySelectorAll('.tab-content');
@@ -104,7 +149,78 @@ document.addEventListener('DOMContentLoaded', function() {
       
       // Add AI summary if available
       if (data.ai_summary && data.ai_summary.response) {
-        formattedResults += `<div class="ai-summary"><h4>AI Insights</h4><p>${data.ai_summary.response}</p></div>`;
+        // Check if response is markdown
+        if (typeof data.ai_summary.response === 'string' && 
+            (data.ai_summary.response.includes('**') || 
+             data.ai_summary.response.includes('#') || 
+             data.ai_summary.response.includes('*') || 
+             data.ai_summary.response.includes('-'))) {
+          
+          // Start with basic title
+          displayResults('trending-results', `<h3>Trending Analysis for "${niche}"</h3>`);
+          
+          // Create container for markdown content
+          const container = document.getElementById('trending-results');
+          const insightsHeading = document.createElement('h4');
+          insightsHeading.textContent = 'AI Insights';
+          container.appendChild(insightsHeading);
+          
+          // Create markdown div
+          const markdownDiv = document.createElement('div');
+          markdownDiv.className = 'markdown-content';
+          
+          try {
+            // Parse markdown
+            markdownDiv.innerHTML = marked.parse(data.ai_summary.response);
+          } catch (error) {
+            console.error('Error parsing markdown:', error);
+            markdownDiv.innerHTML = `<pre>${data.ai_summary.response}</pre>`;
+          }
+          
+          // Append markdown content
+          container.appendChild(markdownDiv);
+          
+          // Add video results if available
+          if (data.trending_videos && data.trending_videos.length > 0) {
+            const videosHeading = document.createElement('h4');
+            videosHeading.textContent = 'Top Trending Videos';
+            container.appendChild(videosHeading);
+            
+            const videoGrid = document.createElement('div');
+            videoGrid.className = 'video-grid';
+            
+            data.trending_videos.forEach(video => {
+              const videoAnalysis = data.analysis_results.find(result => result.video.video_id === video.video_id);
+              const seoScore = videoAnalysis ? videoAnalysis.analysis.seo_score : 'N/A';
+              
+              const videoCard = document.createElement('div');
+              videoCard.className = 'video-card';
+              videoCard.innerHTML = `
+                <div class="video-thumbnail">
+                  <img src="${video.thumbnail || 'https://i.ytimg.com/vi/default/hqdefault.jpg'}" alt="${video.title}">
+                </div>
+                <div class="video-info">
+                  <h5>${video.title}</h5>
+                  <p>Channel: ${video.channel}</p>
+                  <p>Views: ${video.views_formatted || video.views}</p>
+                  <p>Likes: ${video.likes_formatted || video.likes}</p>
+                  <p>SEO Score: ${seoScore}/100</p>
+                </div>
+              `;
+              
+              videoGrid.appendChild(videoCard);
+            });
+            
+            container.appendChild(videoGrid);
+          }
+          
+          // Add custom styles
+          addCustomStyles();
+          
+          return;
+        } else {
+          formattedResults += `<div class="ai-summary"><h4>AI Insights</h4><p>${data.ai_summary.response}</p></div>`;
+        }
       }
       
       // Add video results
@@ -185,7 +301,98 @@ document.addEventListener('DOMContentLoaded', function() {
       
       // Add AI insights if available
       if (data.ai_insights && data.ai_insights.response) {
-        formattedResults += `<div class="ai-insights"><h4>AI Recommendations</h4><p>${data.ai_insights.response}</p></div>`;
+        // Check if response is markdown
+        if (typeof data.ai_insights.response === 'string' && 
+            (data.ai_insights.response.includes('**') || 
+             data.ai_insights.response.includes('#') || 
+             data.ai_insights.response.includes('*') || 
+             data.ai_insights.response.includes('-'))) {
+          
+          // Start with basic title
+          displayResults('content-results', `<h3>Content Ideas for "${prompt}"</h3>`);
+          
+          // Create container for markdown content
+          const container = document.getElementById('content-results');
+          const insightsHeading = document.createElement('h4');
+          insightsHeading.textContent = 'AI Recommendations';
+          container.appendChild(insightsHeading);
+          
+          // Create markdown div
+          const markdownDiv = document.createElement('div');
+          markdownDiv.className = 'markdown-content';
+          
+          try {
+            // Parse markdown
+            markdownDiv.innerHTML = marked.parse(data.ai_insights.response);
+          } catch (error) {
+            console.error('Error parsing markdown:', error);
+            markdownDiv.innerHTML = `<pre>${data.ai_insights.response}</pre>`;
+          }
+          
+          // Append markdown content
+          container.appendChild(markdownDiv);
+          
+          // Display video ideas
+          if (data.content_ideas && data.content_ideas.video_ideas) {
+            const ideasHeading = document.createElement('h4');
+            ideasHeading.textContent = 'Video Ideas';
+            container.appendChild(ideasHeading);
+            
+            data.content_ideas.video_ideas.forEach((idea, index) => {
+              const ideaCard = document.createElement('div');
+              ideaCard.className = 'idea-card';
+              ideaCard.innerHTML = `
+                <h5>${idea.title}</h5>
+                <p><strong>Hook:</strong> ${idea.hook}</p>
+                <p><strong>Outline:</strong></p>
+                <ul>
+                  ${idea.outline.map(item => `<li>${item}</li>`).join('')}
+                </ul>
+              `;
+              
+              container.appendChild(ideaCard);
+            });
+          }
+          
+          // Display thumbnail ideas
+          if (data.content_ideas && data.content_ideas.thumbnail_ideas) {
+            const thumbnailHeading = document.createElement('h4');
+            thumbnailHeading.textContent = 'Thumbnail Ideas';
+            container.appendChild(thumbnailHeading);
+            
+            const thumbnailList = document.createElement('ul');
+            data.content_ideas.thumbnail_ideas.forEach(idea => {
+              const item = document.createElement('li');
+              item.textContent = idea;
+              thumbnailList.appendChild(item);
+            });
+            
+            container.appendChild(thumbnailList);
+          }
+          
+          // Display script template
+          if (data.content_ideas && data.content_ideas.script_template) {
+            const scriptHeading = document.createElement('h4');
+            scriptHeading.textContent = 'Script Template';
+            container.appendChild(scriptHeading);
+            
+            const scriptTemplate = document.createElement('div');
+            scriptTemplate.className = 'script-template';
+            
+            const pre = document.createElement('pre');
+            pre.textContent = data.content_ideas.script_template;
+            scriptTemplate.appendChild(pre);
+            
+            container.appendChild(scriptTemplate);
+          }
+          
+          // Add custom styles
+          addCustomStyles();
+          
+          return;
+        } else {
+          formattedResults += `<div class="ai-insights"><h4>AI Recommendations</h4><p>${data.ai_insights.response}</p></div>`;
+        }
       }
       
       // Display video ideas
@@ -327,12 +534,51 @@ document.addEventListener('DOMContentLoaded', function() {
       
       // Add AI insights if available
       if (data.ai_insights && data.ai_insights.response) {
-        formattedResults += `
-          <div class="ai-insights">
-            <h4>AI Recommendations</h4>
-            <p>${data.ai_insights.response}</p>
-          </div>
-        `;
+        // Check if response is markdown
+        if (typeof data.ai_insights.response === 'string' && 
+            (data.ai_insights.response.includes('**') || 
+             data.ai_insights.response.includes('#') || 
+             data.ai_insights.response.includes('*') || 
+             data.ai_insights.response.includes('-'))) {
+          
+          // Instead of replacing everything, add the formatted metrics first
+          displayResults('performance-results', formattedResults);
+          
+          // Then create a container for the markdown insights
+          const container = document.getElementById('performance-results');
+          const insightsHeading = document.createElement('h4');
+          insightsHeading.textContent = 'AI Recommendations';
+          container.appendChild(insightsHeading);
+          
+          // Create a div for markdown content
+          const markdownDiv = document.createElement('div');
+          markdownDiv.className = 'markdown-content';
+          
+          try {
+            // Parse markdown with marked
+            markdownDiv.innerHTML = marked.parse(data.ai_insights.response);
+          } catch (error) {
+            console.error('Error parsing markdown:', error);
+            // Fallback to simple display
+            markdownDiv.innerHTML = `<pre>${data.ai_insights.response}</pre>`;
+          }
+          
+          // Append the parsed content
+          container.appendChild(markdownDiv);
+          
+          // Add custom styles
+          addCustomStyles();
+          
+          // Important: Return here to avoid double-displaying
+          return;
+        } else {
+          formattedResults += `
+            <div class="ai-insights">
+              <h4>AI Recommendations</h4>
+              <p>${data.ai_insights.response}</p>
+            </div>
+          `;
+        }
       }
       
       displayResults('performance-results', formattedResults);
@@ -359,7 +605,52 @@ document.addEventListener('DOMContentLoaded', function() {
   
   function displayResults(containerId, results) {
     const container = document.getElementById(containerId);
-    container.innerHTML = results;
+    
+    try {
+      // Check if the results appear to be markdown and not HTML
+      const isMarkdown = typeof results === 'string' && 
+                         !results.startsWith('<') &&
+                         (results.includes('**') || 
+                          results.includes('#') || 
+                          results.match(/^\s*\*\s+/m) || // Bullet points starting with *
+                          results.match(/^\s*-\s+/m) ||  // Bullet points starting with -
+                          results.match(/^\s*\d+\.\s+/m) || // Numbered lists
+                          results.includes('__') ||
+                          results.includes('_'));
+                         
+      if (isMarkdown) {
+        console.log('Content appears to be markdown, attempting to parse');
+        
+        // Try to parse markdown to HTML using marked library or fallback
+        try {
+          const htmlContent = marked.parse(results);
+          console.log('Markdown parsed successfully');
+          
+          // Create a div with markdown styling
+          const markdownDiv = document.createElement('div');
+          markdownDiv.className = 'markdown-content';
+          markdownDiv.innerHTML = htmlContent;
+          
+          // Clear container and append the parsed content
+          container.innerHTML = '';
+          container.appendChild(markdownDiv);
+        } catch (markdownError) {
+          console.error('Error parsing markdown:', markdownError);
+          // Fallback to simple display with pre-formatting
+          container.innerHTML = `<pre>${results}</pre>`;
+        }
+      } else {
+        console.log('Content does not appear to be markdown, displaying as-is');
+        // If not markdown or already HTML, just set the innerHTML
+        container.innerHTML = results;
+      }
+    } catch (error) {
+      console.error('Error displaying results:', error);
+      container.innerHTML = `<p>Error displaying content: ${error.message}</p>`;
+      if (typeof results === 'string') {
+        container.innerHTML += `<pre>${results}</pre>`;
+      }
+    }
   }
   
   function addCustomStyles() {

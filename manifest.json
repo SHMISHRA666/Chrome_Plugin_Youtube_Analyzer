@@ -30,5 +30,11 @@
       "matches": ["https://*.youtube.com/*"],
       "js": ["content.js"]
     }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["marked.min.js"],
+      "matches": ["<all_urls>"]
+    }
   ]
 } 
