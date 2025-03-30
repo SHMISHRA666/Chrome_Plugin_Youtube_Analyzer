@@ -20,6 +20,55 @@ logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# Clear existing handlers
+logger.handlers = []
+
+# Simple console handler
+console_handler = logging.StreamHandler()
+logger.addHandler(console_handler)
+
+# Flow tracking variables
+flow_steps = {}
+GLOBAL_TOOL_SESSION = "tool_exec"  # Default session ID for direct tool execution
+
+def log_flow_step(session_id, step_type, message=""):
+    """Log a step in the flow with minimal formatting"""
+    if session_id not in flow_steps:
+        flow_steps[session_id] = 1
+    
+    step_num = flow_steps[session_id]
+    
+    # Color codes
+    BLUE = '\033[94m'    # Query
+    GREEN = '\033[92m'   # LLM
+    YELLOW = '\033[93m'  # Tool
+    CYAN = '\033[96m'    # Result
+    RED = '\033[91m'     # Error
+    RESET = '\033[0m'    # Reset
+    
+    color = BLUE
+    if step_type == "LLM":
+        color = GREEN
+    elif step_type == "TOOL":
+        color = YELLOW
+    elif step_type == "RESULT":
+        color = CYAN
+    elif step_type == "ERROR":
+        color = RED
+    
+    # Format the step in the pattern: Query1→LLM→Tool→Result
+    formatted_step = f"{color}{step_type}{step_num}{RESET}"
+    
+    # Increment step counter if this is the start of a new sequence
+    if step_type == "QUERY":
+        flow_steps[session_id] += 1
+    
+    # Log the formatted message
+    if message:
+        logger.info(f"[{session_id}] {formatted_step} → {message[:100]}{'...' if len(message) > 100 else ''}")
+    else:
+        logger.info(f"[{session_id}] {formatted_step}")
+
 # Initialize Flask app
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
@@ -89,11 +138,13 @@ class YouTubeScraperTool(Tool):
     def execute(self, niche: str) -> Dict[str, Any]:
         """Get trending videos from YouTube based on niche keyword"""
         logger.info(f"Searching YouTube videos for niche: {niche}")
+        log_flow_step(GLOBAL_TOOL_SESSION, "TOOL", f"YouTubeScraperTool executing with niche: {niche}")
         
         try:
             youtube = get_youtube_client()
             
             # Search for videos related to the niche
+            log_flow_step(GLOBAL_TOOL_SESSION, "TOOL", f"Searching YouTube for videos related to: {niche}")
             search_response = youtube.search().list(
                 q=niche,
                 part="snippet",
@@ -104,6 +155,7 @@ class YouTubeScraperTool(Tool):
             ).execute()
             
             video_ids = [item['id']['videoId'] for item in search_response['items']]
+            log_flow_step(GLOBAL_TOOL_SESSION, "RESULT", f"Found {len(video_ids)} video IDs")
             
             # Get video statistics (views, likes, etc.)
             videos_response = youtube.videos().list(
@@ -173,13 +225,15 @@ class ContentAnalyzerTool(Tool):
     
     def execute(self, content: Dict[str, Any]) -> Dict[str, Any]:
         """Analyze content for SEO optimization"""
-        logger.info(f"Analyzing content: {content.get('title', 'unknown')}")
-        
         title = content.get('title', '')
+        logger.info(f"Analyzing content: {title}")
+        log_flow_step(GLOBAL_TOOL_SESSION, "TOOL", f"ContentAnalyzerTool analyzing: {title[:50]}...")
+        
         description = content.get('description', '')
         provided_keywords = content.get('keywords', [])
         
         # Extract keywords from title and description
+        log_flow_step(GLOBAL_TOOL_SESSION, "TOOL", f"Extracting keywords from title and description")
         all_text = f"{title} {description}"
         extracted_keywords = re.findall(r'\b\w{4,}\b', all_text.lower())
         extracted_keywords = [keyword for keyword in extracted_keywords 
@@ -187,6 +241,7 @@ class ContentAnalyzerTool(Tool):
         
         # Combine provided and extracted keywords
         keywords = list(set(provided_keywords + extracted_keywords))
+        log_flow_step(GLOBAL_TOOL_SESSION, "RESULT", f"Found {len(keywords)} unique keywords")
         
         # Calculate keyword frequency
         keyword_freq = {}
@@ -325,10 +380,12 @@ class ContentGeneratorTool(Tool):
     def execute(self, prompt: str, trending_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Generate content ideas based on prompt and trending data"""
         logger.info(f"Generating content based on prompt: {prompt}")
+        log_flow_step(GLOBAL_TOOL_SESSION, "TOOL", f"ContentGeneratorTool generating ideas for: {prompt}")
         
         try:
             # Use Gemini to generate unique content ideas for this specific topic
             model = genai.GenerativeModel('gemini-2.0-flash')
+            log_flow_step(GLOBAL_TOOL_SESSION, "TOOL", f"Calling Gemini model to generate content ideas")
             
             generation_prompt = f"""
             Generate unique YouTube video content ideas for the topic: "{prompt}".
@@ -363,6 +420,7 @@ class ContentGeneratorTool(Tool):
             # Generate response
             response = model.generate_content(generation_prompt)
             response_text = response.text
+            log_flow_step(GLOBAL_TOOL_SESSION, "RESULT", f"Gemini generated content response of {len(response_text)} characters")
             
             # Extract JSON content
             json_match = re.search(r'```json\s*(.*?)\s*```', response_text, re.DOTALL)
@@ -498,6 +556,7 @@ class PerformanceTrackerTool(Tool):
     def execute(self, video_url: str) -> Dict[str, Any]:
         """Track performance of a video based on URL"""
         logger.info(f"Tracking performance for video: {video_url}")
+        log_flow_step(GLOBAL_TOOL_SESSION, "TOOL", f"PerformanceTrackerTool analyzing video: {video_url}")
         
         # Extract video ID from URL
         video_id = None
@@ -507,7 +566,10 @@ class PerformanceTrackerTool(Tool):
             video_id = video_url.split("/")[-1]
         
         if not video_id:
+            log_flow_step(GLOBAL_TOOL_SESSION, "ERROR", f"Invalid YouTube URL: {video_url}")
             return {"error": "Invalid YouTube URL"}
+        
+        log_flow_step(GLOBAL_TOOL_SESSION, "RESULT", f"Extracted video ID: {video_id}")
         
         try:
             youtube = get_youtube_client()
@@ -654,7 +716,8 @@ def call_gemini(prompt, conversation_id=None, tool_results=None):
     Returns:
         dict: Response from Gemini with potential tool calls
     """
-    logger.info(f"Calling Gemini with prompt: {prompt[:100]}...")
+    # Log query step
+    log_flow_step(conversation_id, "QUERY", prompt)
     
     # Get or create conversation history
     if conversation_id not in conversation_history:
@@ -662,6 +725,7 @@ def call_gemini(prompt, conversation_id=None, tool_results=None):
     
     # Add tool results to history if provided
     if tool_results:
+        log_flow_step(conversation_id, "RESULT", str(tool_results))
         conversation_history[conversation_id].append({
             "role": "function",
             "parts": [{"text": json.dumps(tool_results)}]
@@ -688,12 +752,13 @@ def call_gemini(prompt, conversation_id=None, tool_results=None):
         
         full_prompt = f"{tools_description}\n\n{full_context}\n\nIf you need to use a tool, respond with:\nTOOL: <tool_name>\nPARAMS: {{'param1': 'value1', 'param2': 'value2'}}\n\nOtherwise respond directly to the user."
         
-        # Call Gemini API using the correct method for version 0.3.1
+        # Call Gemini API
         model = genai.GenerativeModel('gemini-2.0-flash')
         response = model.generate_content(full_prompt)
-        
-        # Parse response for tool calls
         response_text = response.text
+        
+        # Log LLM response step
+        log_flow_step(conversation_id, "LLM", response_text)
         
         # Check if the response includes a tool call
         if "TOOL:" in response_text:
@@ -705,33 +770,11 @@ def call_gemini(prompt, conversation_id=None, tool_results=None):
                 tool_name = tool_match.group(1)
                 tool_params_str = tool_match.group(2)
                 
+                # Log tool call step
+                log_flow_step(conversation_id, "TOOL", f"{tool_name}: {tool_params_str}")
+                
                 try:
-                    # Log original parameters for debugging
-                    logger.info(f"Original parameters: {tool_params_str}")
-                    
-                    # Handle the case of video_url specifically - direct extraction
-                    if tool_name == "performance_tracker" and "video_url" in tool_params_str:
-                        url_match = re.search(r'https?://[^\s"]+', tool_params_str)
-                        if url_match:
-                            url = url_match.group(0)
-                            tool_params = {"video_url": url}
-                            logger.info(f"Direct extraction: extracted URL {url} from parameters")
-                            
-                            # Store the assistant's response
-                            conversation_history[conversation_id].append({
-                                "role": "assistant",
-                                "parts": [{"text": response_text}]
-                            })
-                            
-                            return {
-                                "response": response_text,
-                                "tool_call": {
-                                    "name": tool_name,
-                                    "parameters": tool_params
-                                }
-                            }
-                    
-                    # For other tools, try standard JSON parsing with improvements
+                    # Process tool parameters as before...
                     # Replace single quotes with double quotes for JSON parsing
                     tool_params_str = tool_params_str.replace("'", '"')
                     
@@ -818,6 +861,7 @@ def execute_tool_call(tool_call):
     tool_params = tool_call["parameters"]
     
     if tool_name not in available_tools:
+        log_flow_step(GLOBAL_TOOL_SESSION, "ERROR", f"Tool '{tool_name}' not found")
         return {"error": f"Tool '{tool_name}' not found"}
     
     try:
@@ -825,6 +869,7 @@ def execute_tool_call(tool_call):
         result = tool.execute(**tool_params)
         return {tool_name: result}
     except Exception as e:
+        log_flow_step(GLOBAL_TOOL_SESSION, "ERROR", f"Error executing tool {tool_name}: {e}")
         logger.error(f"Error executing tool {tool_name}: {e}")
         return {"error": f"Tool execution error: {str(e)}"}
 
@@ -849,9 +894,17 @@ def analyze_trending():
     session_id = data.get("session_id", "default")
     
     try:
-        # Use the YouTube scraper tool to get trending videos
+        # Initialize the flow for this session
+        flow_steps[session_id] = 1
+        
+        # Log initial query
+        log_flow_step(session_id, "QUERY", f"Analyze trending videos for: {niche}")
+        
+        # Use the YouTube scraper tool
         yt_scraper = available_tools["youtube_scraper"]
+        log_flow_step(session_id, "TOOL", f"youtube_scraper(niche={niche})")
         trending_data = yt_scraper.execute(niche=niche)
+        log_flow_step(session_id, "RESULT", f"Found {len(trending_data.get('trending_videos', []))} videos")
         
         if not trending_data or "trending_videos" not in trending_data:
             return jsonify({
@@ -863,7 +916,7 @@ def analyze_trending():
         content_analyzer = available_tools["content_analyzer"]
         analysis_results = []
         
-        for video in trending_data["trending_videos"]:
+        for idx, video in enumerate(trending_data["trending_videos"]):
             # Format numbers for display
             if 'views' in video and video['views'].isdigit():
                 view_count = int(video['views'])
@@ -884,7 +937,9 @@ def analyze_trending():
                     video['likes_formatted'] = str(like_count)
             
             # Analyze each video
+            log_flow_step(session_id, "TOOL", f"content_analyzer({video.get('title', '')[:30]}...)")
             analysis = content_analyzer.execute(video)
+            log_flow_step(session_id, "RESULT", f"SEO score: {analysis.get('seo_score', 'N/A')}")
             
             # Combine video data with analysis
             combined_result = {
@@ -907,11 +962,14 @@ def analyze_trending():
         user_prompt = json.dumps(analysis_results, indent=2)
         
         # Call Gemini for insights
+        log_flow_step(session_id, "QUERY", "Generate summary from analysis")
         ai_summary = call_gemini(
             prompt=user_prompt,
             conversation_id=session_id,
             tool_results={"system_prompt": system_prompt}
         )
+        
+        log_flow_step(session_id, "RESULT", "Analysis complete")
         
         return jsonify({
             "success": True,
@@ -922,6 +980,7 @@ def analyze_trending():
         })
     
     except Exception as e:
+        log_flow_step(session_id, "ERROR", str(e))
         logger.error(f"Error in /analyze_trending: {str(e)}")
         return jsonify({
             "error": "Analysis failed",
@@ -948,9 +1007,17 @@ def generate_content():
     session_id = data.get("session_id", "default")
     
     try:
+        # Initialize flow for this session
+        flow_steps[session_id] = 1
+        
+        # Log initial query
+        log_flow_step(session_id, "QUERY", f"Generate content for: {prompt}")
+        
         # Use the content generator tool
+        log_flow_step(session_id, "TOOL", f"content_generator(prompt={prompt})")
         content_generator = available_tools["content_generator"]
         content_ideas = content_generator.execute(prompt=prompt)
+        log_flow_step(session_id, "RESULT", f"Generated {len(content_ideas.get('video_ideas', []))} ideas")
         
         if not content_ideas:
             return jsonify({
@@ -992,11 +1059,14 @@ def generate_content():
         user_prompt = json.dumps(content_ideas, indent=2)
         
         # Call Gemini for insights
+        log_flow_step(session_id, "QUERY", "Generate content strategy")
         ai_insights = call_gemini(
             prompt=user_prompt,
             conversation_id=session_id,
             tool_results={"system_prompt": system_prompt}
         )
+        
+        log_flow_step(session_id, "RESULT", "Content generation complete")
         
         return jsonify({
             "success": True,
@@ -1006,6 +1076,7 @@ def generate_content():
         })
     
     except Exception as e:
+        log_flow_step(session_id, "ERROR", str(e))
         logger.error(f"Error in /generate_content: {str(e)}")
         return jsonify({
             "error": "Content generation failed",
@@ -1039,15 +1110,25 @@ def track_performance():
         }), 400
     
     try:
+        # Initialize flow for this session
+        flow_steps[session_id] = 1
+        
+        # Log initial query
+        log_flow_step(session_id, "QUERY", f"Track performance for: {video_url}")
+        
         # Use the performance tracker tool
+        log_flow_step(session_id, "TOOL", f"performance_tracker(video_url={video_url})")
         performance_tracker = available_tools["performance_tracker"]
         performance_data = performance_tracker.execute(video_url=video_url)
         
         if "error" in performance_data:
+            log_flow_step(session_id, "ERROR", performance_data["error"])
             return jsonify({
                 "error": "Performance tracking failed",
                 "message": performance_data["error"]
             }), 400
+        
+        log_flow_step(session_id, "RESULT", "Performance data retrieved")
         
         # Generate insights with Gemini
         system_prompt = """
@@ -1062,11 +1143,14 @@ def track_performance():
         user_prompt = json.dumps(performance_data, indent=2)
         
         # Call Gemini for insights
+        log_flow_step(session_id, "QUERY", "Generate performance insights")
         ai_insights = call_gemini(
             prompt=user_prompt,
             conversation_id=session_id,
             tool_results={"system_prompt": system_prompt}
         )
+        
+        log_flow_step(session_id, "RESULT", "Performance analysis complete")
         
         return jsonify({
             "success": True,
@@ -1076,6 +1160,7 @@ def track_performance():
         })
     
     except Exception as e:
+        log_flow_step(session_id, "ERROR", str(e))
         logger.error(f"Error in /track_performance: {str(e)}")
         return jsonify({
             "error": "Performance tracking failed",
@@ -1092,6 +1177,12 @@ def analyze_video():
         # Generate a conversation ID
         conversation_id = f"video_{int(time.time())}"
         
+        # Initialize flow for this session
+        flow_steps[conversation_id] = 1
+        
+        # Log initial query
+        log_flow_step(conversation_id, "QUERY", f"Analyze video ID: {video_id}")
+        
         # Initial prompt to the model
         prompt = f"I want to analyze this YouTube video with ID {video_id} and the following data: {json.dumps(video_data)}. What insights can you provide about this video's performance, SEO, and content quality?"
         
@@ -1101,11 +1192,16 @@ def analyze_video():
         # Check if there's a tool call
         if response.get("tool_call"):
             # Execute the tool
+            tool_name = response["tool_call"]["name"]
+            log_flow_step(conversation_id, "TOOL", f"{tool_name}")
             tool_results = execute_tool_call(response["tool_call"])
+            log_flow_step(conversation_id, "RESULT", f"Tool results from {tool_name}")
             
             # Second call to Gemini with tool results
+            second_prompt = "Based on the video analysis, what specific improvements would you recommend for this video? How can the title, description, and content be optimized?"
+            log_flow_step(conversation_id, "QUERY", "Request improvements based on analysis")
             second_response = call_gemini(
-                "Based on the video analysis, what specific improvements would you recommend for this video? How can the title, description, and content be optimized?",
+                second_prompt,
                 conversation_id, 
                 tool_results
             )
@@ -1113,14 +1209,21 @@ def analyze_video():
             # Check if there's another tool call
             if second_response.get("tool_call"):
                 # Execute the second tool
+                second_tool_name = second_response["tool_call"]["name"]
+                log_flow_step(conversation_id, "TOOL", f"{second_tool_name}")
                 second_tool_results = execute_tool_call(second_response["tool_call"])
+                log_flow_step(conversation_id, "RESULT", f"Tool results from {second_tool_name}")
                 
                 # Final call to Gemini with all results
+                final_prompt = "Based on all the analysis, what are your final recommendations for improving this video and creating better content in the future?"
+                log_flow_step(conversation_id, "QUERY", "Request final recommendations")
                 final_response = call_gemini(
-                    "Based on all the analysis, what are your final recommendations for improving this video and creating better content in the future?",
+                    final_prompt,
                     conversation_id,
                     second_tool_results
                 )
+                
+                log_flow_step(conversation_id, "RESULT", "Full agentic flow complete (Query→LLM→Tool→Result→Query→LLM→Tool→Result→Query→LLM→Result)")
                 
                 return jsonify({
                     "result": final_response["response"],
@@ -1128,12 +1231,14 @@ def analyze_video():
                     "conversation_id": conversation_id
                 })
             else:
+                log_flow_step(conversation_id, "RESULT", "Partial agentic flow complete (Query→LLM→Tool→Result→Query→LLM→Result)")
                 return jsonify({
                     "result": second_response["response"],
                     "video_id": video_id,
                     "conversation_id": conversation_id
                 })
         else:
+            log_flow_step(conversation_id, "RESULT", "Simple flow complete (Query→LLM→Result)")
             return jsonify({
                 "result": response["response"],
                 "video_id": video_id,
@@ -1141,6 +1246,7 @@ def analyze_video():
             })
             
     except Exception as e:
+        log_flow_step(conversation_id if 'conversation_id' in locals() else "unknown", "ERROR", str(e))
         logger.error(f"Error in analyze_video: {e}")
         return jsonify({"error": str(e)}), 500
 
