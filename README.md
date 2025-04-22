@@ -2,6 +2,10 @@
 
 An AI-powered Chrome extension that analyzes YouTube content, suggests improvements, and helps creators optimize their videos.
 
+## Demo Video
+
+Check out our extension in action: [YouTube Demo Video](https://youtu.be/IMRqrFyG-W8)
+
 ## Features
 
 - **Trend Analysis**: Scrapes trending videos in your niche and analyzes key metrics
